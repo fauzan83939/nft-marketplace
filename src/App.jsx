@@ -93,6 +93,12 @@ export default function App() {
     if (tab === "market") loadMarketplace();
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // begitu wallet connect (userAddress berubah), langsung refresh data NFT saya
+  // supaya tidak perlu pindah tab manual untuk lihat hasil mint
+  useEffect(() => {
+    if (userAddress) loadMyNFTs();
+  }, [userAddress, nftContract]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function connectWallet() {
     if (!window.ethereum) {
       toast("MetaMask tidak terdeteksi. Install dulu ekstensinya.", "err");
@@ -136,16 +142,23 @@ export default function App() {
     }
   }
 
-  async function handleMint(name, desc, img) {
+  async function handleMint(name, desc, img, supply = 1) {
     if (!signer) { toast("Connect wallet dulu", "err"); return; }
     setBusy(true);
-    const id = toast("Mengirim transaksi mint...", "pending");
+    const uri = buildDataURI(name, desc, img);
+    const count = Math.max(1, Math.min(50, supply));
+    const id = toast(
+      count > 1 ? `Mengirim transaksi mint (0/${count})...` : "Mengirim transaksi mint...",
+      "pending"
+    );
     try {
-      const uri = buildDataURI(name, desc, img);
-      const tx = await nftContract.mintNFT(userAddress, uri);
-      await tx.wait();
+      for (let i = 1; i <= count; i++) {
+        if (count > 1) toast(`Mint ${i}/${count}...`, "pending");
+        const tx = await nftContract.mintNFT(userAddress, uri);
+        await tx.wait();
+      }
       removeToast(id);
-      toast("NFT berhasil di-mint!", "ok");
+      toast(count > 1 ? `${count} NFT berhasil di-mint!` : "NFT berhasil di-mint!", "ok");
       loadMyNFTs(); loadMarketplace();
     } catch (e) {
       console.error(e);

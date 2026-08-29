@@ -1,10 +1,30 @@
 import { useState } from "react";
 
-function fileToDataURL(file) {
+// Kecilkan & kompres gambar lewat canvas supaya ukurannya kecil (aman buat disimpan on-chain),
+// apapun ukuran/resolusi file aslinya.
+function resizeImageFile(file, maxDim = 220, quality = 0.6) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height) {
+          if (width > maxDim) { height = Math.round((height * maxDim) / width); width = maxDim; }
+        } else {
+          if (height > maxDim) { width = Math.round((width * maxDim) / height); height = maxDim; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => reject(new Error("Gagal memuat gambar"));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(new Error("Gagal membaca file"));
     reader.readAsDataURL(file);
   });
 }
@@ -17,23 +37,21 @@ export default function MintTab({ onMint, busy }) {
   const [preview, setPreview] = useState("");
   const [supply, setSupply] = useState("1");
   const [fileError, setFileError] = useState("");
+  const [processing, setProcessing] = useState(false);
 
   async function handleFileChange(e) {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileError("");
-    // batasi ukuran file supaya gas mint tidak terlalu besar (gambar disimpan langsung on-chain)
-    if (file.size > 300 * 1024) {
-      setFileError("Ukuran file terlalu besar (maks ±300 KB). Kompres dulu gambarnya, atau pakai mode URL.");
-      return;
-    }
+    setProcessing(true);
     try {
-      const dataUrl = await fileToDataURL(file);
+      const dataUrl = await resizeImageFile(file);
       setImg(dataUrl);
       setPreview(dataUrl);
     } catch (err) {
-      setFileError("Gagal membaca file gambar.");
+      setFileError("Gagal memproses gambar. Coba file lain.");
     }
+    setProcessing(false);
   }
 
   function handleUrlChange(value) {
@@ -88,7 +106,9 @@ export default function MintTab({ onMint, busy }) {
           <>
             <input type="file" accept="image/*" onChange={handleFileChange} />
             <div style={{ fontSize: 11.5, color: "var(--text-dim)", marginTop: 6 }}>
-              Gambar disimpan langsung on-chain, jadi usahakan file kecil (di bawah ±300 KB) supaya biaya gas tidak mahal.
+              {processing
+                ? "Memproses & mengecilkan gambar..."
+                : "Gambar otomatis dikecilkan & dikompres sebelum disimpan on-chain, jadi ukuran file asli tidak masalah."}
             </div>
           </>
         )}
@@ -120,7 +140,7 @@ export default function MintTab({ onMint, busy }) {
         <button
           className="btn btn-full"
           style={{ marginTop: 18 }}
-          disabled={busy || !name || !img}
+          disabled={busy || processing || !name || !img}
           onClick={() => {
             onMint(name, desc, img, supplyNum);
             setName(""); setDesc(""); setImg(""); setPreview(""); setSupply("1");
